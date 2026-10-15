@@ -23,3 +23,7 @@ test = [
 
 [project.scripts]
 nqueens = "cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nqueens*"]
