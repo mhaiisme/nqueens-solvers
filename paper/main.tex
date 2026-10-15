@@ -1,0 +1,407 @@
+%% =====================================================================
+%% Assignment 1 - N-Queens: SAT vs. CP vs. ILP
+%% Template: Elsevier CAS single-column (cas-sc)
+%% Compile: pdflatex / Overleaf (2 passes)  or  tectonic main.tex
+%% =====================================================================
+\documentclass[a4paper,fleqn]{cas-sc}
+
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[most]{tcolorbox}
+
+\newtheorem{proposition}{Proposition}
+
+%% "Key finding" box used at the end of every result subsection
+\newtcolorbox{finding}{colback=blue!4,colframe=blue!50!black,
+  boxrule=0.5pt,arc=2pt,left=4pt,right=4pt,top=2pt,bottom=2pt,
+  fonttitle=\bfseries\small,title=Key finding}
+\newcommand{\TO}{\textsc{to}}
+\newcommand{\MO}{\textsc{mo}}
+\newcommand{\NA}{\textsc{n/a}}
+
+\shorttitle{N-Queens: SAT vs. CP vs. ILP}
+\shortauthors{Hai}
+
+\begin{document}
+\let\WriteBookmarks\relax
+\def\floatpagepagefraction{1}
+\def\textpagefraction{.001}
+
+\title [mode = title]{Solving the N-Queens Problem with SAT: A Comparison of AMO/ALO Encodings, SAT Solvers, Constraint Programming and Integer Programming}
+
+\author[1]{Hai}
+\affiliation[1]{organization={Faculty of Information Technology, VNU University of Engineering and Technology},
+    addressline={144 Xuan Thuy, Cau Giay},
+    city={Hanoi},
+    country={Vietnam}}
+
+\begin{abstract}
+The N-Queens problem asks for a placement of $N$ queens on an $N\times N$ board such that no two queens attack each other. We solve it with Boolean satisfiability (SAT) and compare SAT with two other exact paradigms: constraint programming (CP) and integer linear programming (ILP).
+For SAT, we implement five at-most-one (AMO) encodings (pairwise, binary, sequential counter, commander, product), test four further encodings from the PySAT library, and run eight CDCL solvers, including CaDiCaL, Glucose, Kissat and CryptoMiniSat. We then compare the best SAT configuration with Google OR-Tools CP-SAT, IBM CPLEX CP Optimizer, CPLEX MIP and Gurobi.
+All encodings are verified by counting all solutions for $N=2,\dots,9$, which match the known values (OEIS A000170).
+Under a 30-second, single-thread budget we find that: (i) the \emph{commander} encoding is the most robust, solving $N=512$ in 11.4~s with CaDiCaL; (ii) a small number of clauses does not guarantee fast solving: sequential counter is compact but times out from $N=256$; (iii) the best SAT configuration reaches $N=1000$ in 27.7~s, further than CP-SAT ($N\le256$); and (iv) CPLEX CP is the fastest method where its community licence allows it to run ($N\le128$), while Gurobi and CPLEX MIP are limited by their licences to $N\le44$ and $N\le31$.
+\end{abstract}
+
+\begin{keywords}
+N-Queens \sep SAT encoding \sep at-most-one (AMO) \sep PySAT \sep constraint programming \sep integer linear programming
+\end{keywords}
+
+\maketitle
+
+%% =====================================================================
+\section{Introduction}
+%% =====================================================================
+
+\paragraph{Motivation.}
+The N-Queens problem is a classical benchmark in artificial intelligence and operations research~\cite{bell2009,letavec2002}. A solution exists for every $N\ge4$ and can even be built directly in $O(N)$ time~\cite{bell2009}, so the problem is not hard in theory. However, it is a good \emph{controlled testbed}: the same simple constraints can be modelled in very different ways, and we can measure how each modelling choice affects performance.
+
+\paragraph{Three paradigms.}
+\begin{itemize}
+  \item \textbf{SAT} writes the board as a propositional formula in conjunctive normal form (CNF) and solves it with a conflict-driven clause-learning (CDCL) solver~\cite{handbook2009,marques2009}. Performance depends strongly on how the ``at most one queen per line'' constraint is encoded~\cite{frisch2010,sinz2005,klieber2007,chen2010}.
+  \item \textbf{Constraint programming (CP)} keeps the constraint as a global \texttt{AllDifferent} constraint and uses a dedicated propagator~\cite{regin1994}.
+  \item \textbf{Integer linear programming (ILP)} writes the constraints as linear (in)equalities over 0/1 variables and solves them by branch-and-bound/cut.
+\end{itemize}
+
+\paragraph{Research questions.} We structure the study around three questions:
+\begin{itemize}
+  \item[\textbf{RQ1}] How does the choice of AMO encoding affect the CNF size and the solving time?
+  \item[\textbf{RQ2}] How do different SAT solvers perform on the same encoding?
+  \item[\textbf{RQ3}] How does the best SAT configuration compare with CP (CP-SAT, CPLEX CP) and ILP (Gurobi, CPLEX MIP)?
+\end{itemize}
+
+\paragraph{Contributions.}
+\begin{enumerate}
+  \item We implement five AMO encodings and use four PySAT encodings, and verify all of them by exhaustive solution counting for $N=2,\dots,9$.
+  \item We derive closed-form clause counts for the pairwise and sequential-counter encodings and confirm them against the implementation.
+  \item We benchmark the encodings on eight CDCL solvers on boards up to $1024\times1024$.
+  \item We compare SAT with CP-SAT, CPLEX CP, Gurobi and CPLEX MIP, and state clearly up to which $N$ each commercial solver is limited by its licence.
+\end{enumerate}
+
+\paragraph{Organisation.}
+Section~\ref{sec:background} gives the background. Section~\ref{sec:method} describes our models. Section~\ref{sec:setup} describes the experimental setup, Section~\ref{sec:results} reports the results, Section~\ref{sec:discussion} discusses them, and Section~\ref{sec:conclusion} concludes.
+
+\input{parts/background_method.tex}
+
+
+%% =====================================================================
+\section{Experimental setup}\label{sec:setup}
+%% =====================================================================
+
+\paragraph{Hardware and software.}
+Ubuntu 24.04 virtual machine, 1 vCPU, 3~GB RAM, Python 3.12. Software: python-sat 1.9.dev15 (CaDiCaL 1.5.3 and 1.9.5, Glucose~4, MiniSat~2.2, MapleChrono, Lingeling, Kissat 4.0.4), pycryptosat 5.16, OR-Tools 9.15 (CP-SAT), Gurobi 13.0.3, CPLEX 22.2 and CP Optimizer 22.2.
+
+\paragraph{Protocol.}
+\begin{itemize}
+  \item Each run is a fresh OS process with a \textbf{30-second} wall-clock limit (model building + solving) and a 2.7~GB memory limit.
+  \item \TO\ = time-out (over 30~s); \MO\ = memory-out; \NA\ = model refused by the licence.
+  \item All solvers use \textbf{one thread}; runs are executed strictly one after another.
+  \item Each configuration is run once. Small time differences between neighbouring cells should therefore not be over-interpreted.
+  \item Metric: total time in seconds (encoding + loading + solving).
+\end{itemize}
+
+\paragraph{Licence limits.}
+The commercial solvers are used with free community/evaluation licences, which limit the model size (Table~\ref{tab:licence}). A \NA\ entry is a licence limit, not a solver failure.
+
+\begin{table}[pos=htbp]
+\caption{Model-size limits of the community/evaluation licences.}\label{tab:licence}
+\centering
+\begin{tabular}{lll}
+\toprule
+Solver & Licence limit & Largest $N$ allowed \\
+\midrule
+Gurobi      & $\le 2000$ variables     & $N\le44$ \\
+CPLEX MIP   & $\le 1000$ variables     & $N\le31$ \\
+CP Optimizer & search space $\le 2^{1000}$ & $N\le128$ (fails at $N=200$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% =====================================================================
+\section{Results}\label{sec:results}
+%% =====================================================================
+
+\subsection{Correctness}\label{sec:correct}
+For $N=2,\dots,9$ we enumerate all solutions (solve, block the found solution, repeat) and compare the count with the known values. All nine encodings give exactly the right counts (Table~\ref{tab:count}), and every solution passes the validator.
+
+\begin{table}[pos=htbp]
+\caption{Number of solutions found by exhaustive enumeration (CaDiCaL 1.5.3).}\label{tab:count}
+\centering
+\begin{tabular}{lcccccccc}
+\toprule
+$N$ & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 \\
+\midrule
+Known value (OEIS A000170) & 0 & 0 & 2 & 10 & 4 & 40 & 92 & 352 \\
+Our 5 encodings (pairwise, binary, sequential, commander, product) & 0 & 0 & 2 & 10 & 4 & 40 & 92 & 352 \\
+PySAT encodings (pairwise, seqcounter, bitwise, ladder) & 0 & 0 & 2 & 10 & 4 & 40 & 92 & 352 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{RQ1a -- CNF size}
+Table~\ref{tab:size} and Fig.~\ref{fig:size} show the size of the CNF. At $N=1024$, pairwise would need about 1.79 billion clauses (computed by the formula, not built), binary 41.2 million, while sequential, commander and product need only 9--15 million. Product has the fewest clauses at every size, followed by sequential; however, sequential uses the most auxiliary variables (5.2 million at $N=1024$, vs.\ 3.1 million for commander and 1.6 million for product).
+
+\begin{table}[pos=htbp]
+\caption{Number of variables and clauses per encoding. $\dagger$: computed from the closed-form formula, not built.}\label{tab:size}
+\centering
+\begin{tabular}{lrrrrrr}
+\toprule
+ & \multicolumn{2}{c}{$N=64$} & \multicolumn{2}{c}{$N=256$} & \multicolumn{2}{c}{$N=1024$} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Encoding & \#vars & \#clauses & \#vars & \#clauses & \#vars & \#clauses \\
+\midrule
+Pairwise   &  4,096 & 428,864 &  65,536 & 27,831,552$^\dagger$ & 1,048,576 & 1,787,474,944$^\dagger$ \\
+Binary     &  6,136 &  95,576 &  76,788 &  2,053,464 & 1,105,904 & 41,243,992 \\
+Sequential & 20,098 &  47,756 & 326,146 &    780,812 & 5,236,738 & 12,560,396 \\
+Commander  & 11,906 &  54,918 & 195,214 &    907,754 & 3,142,708 & 14,645,478 \\
+Product    & 12,476 & \textbf{45,620} & 125,800 & \textbf{631,720} & 1,578,860 & \textbf{9,324,048} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[pos=htbp]
+\centering
+\includegraphics[width=0.9\linewidth]{figures/cnf_size.pdf}
+\caption{CNF size vs.\ $N$ (log--log scale).}\label{fig:size}
+\end{figure}
+
+\subsection{RQ1b -- Solving time per encoding}
+Table~\ref{tab:enc} and Fig.~\ref{fig:enc} give the total time with CaDiCaL 1.5.3.
+\begin{itemize}
+  \item \textbf{Small boards ($N\le32$):} every encoding finishes in under 1~s.
+  \item \textbf{Commander} is the fastest or nearly fastest from $N=64$ on (0.20~s at $N=64$, 11.4~s at $N=512$). Together with binary, it is the only encoding that solves both $N=400$ and $N=512$.
+  \item \textbf{Binary} also reaches $N=512$ (24.1~s) but runs out of memory at $N=800$.
+  \item \textbf{Pairwise} is competitive up to $N=128$ but runs out of memory from $N=256$, as expected from its $\Theta(N^3)$ clauses.
+  \item \textbf{Sequential counter} has the second-fewest clauses but is the slowest from $N=64$ (5.75~s vs.\ 0.20~s for commander) and times out from $N=256$.
+  \item \textbf{Product} is not monotonic: it solves $N=512$ (23.9~s) but times out at $N=400$, which illustrates the run-to-run variance of CDCL search.
+\end{itemize}
+
+\begin{table}[pos=htbp]
+\caption{Total time (s) per AMO encoding, CaDiCaL 1.5.3. Best time per row in bold.}\label{tab:enc}
+\centering
+\begin{tabular}{rrrrrr}
+\toprule
+$N$ & Pairwise & Binary & Sequential & Commander & Product \\
+\midrule
+8    & 0.10 & \textbf{0.08} & 0.13 & 0.12 & 0.09 \\
+16   & 0.16 & 0.15 & 0.25 & 0.15 & \textbf{0.14} \\
+32   & 0.95 & 0.47 & 0.44 & \textbf{0.20} & 0.44 \\
+64   & 2.09 & 3.93 & 5.75 & \textbf{0.20} & 0.94 \\
+100  & 5.46 & 2.18 & 4.22 & \textbf{0.58} & 2.91 \\
+128  & 7.91 & 1.19 & 8.82 & \textbf{0.41} & 1.38 \\
+200  & 17.40 & 3.82 & 19.09 & 2.66 & \textbf{1.97} \\
+256  & \MO & 5.82 & \TO & \textbf{1.87} & 3.54 \\
+400  & \MO & 13.27 & \TO & \textbf{7.47} & \TO \\
+512  & \MO & 24.06 & \TO & \textbf{11.36} & 23.90 \\
+800  & \MO & \MO & \TO & \TO & \TO \\
+1024 & \MO & \MO & \MO & \TO & \TO \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[pos=htbp]
+\centering
+\includegraphics[width=0.62\linewidth]{figures/time_encoding.pdf}
+\caption{Total time vs.\ $N$ per encoding (CaDiCaL 1.5.3; failed runs omitted).}\label{fig:enc}
+\end{figure}
+
+Fig.~\ref{fig:status} presents the same data as a status map, which makes the ``scalability frontier'' of each encoding easy to see: commander and binary stay solvable (coloured) the longest, while pairwise turns into memory-outs and sequential into time-outs already at $N=256$.
+
+\begin{figure}[pos=htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/status_map.pdf}
+\caption{Status map of Table~\ref{tab:enc}: each cell shows the total time (s), coloured by speed; grey cells are time-outs (TO) or memory-outs (MO).}\label{fig:status}
+\end{figure}
+
+\paragraph{PySAT built-in encodings.}
+Table~\ref{tab:pysat} shows PySAT's own encodings. They behave similarly to our implementations of the same families, which shows that our results are not caused by slow Python code. Bitwise (PySAT's binary-style encoding) is the most robust and solves $N=512$ in 22.3~s.
+
+\begin{table}[pos=htbp]
+\caption{Total time (s) for PySAT's built-in AMO encodings, CaDiCaL 1.5.3.}\label{tab:pysat}
+\centering
+\begin{tabular}{rrrrr}
+\toprule
+$N$ & pairwise & seqcounter & bitwise & ladder \\
+\midrule
+64  & \textbf{0.47} & 1.08 & 0.56 & 0.77 \\
+128 & 5.07 & 2.33 & \textbf{2.44} & 2.76 \\
+256 & \MO & \TO & \textbf{6.05} & 10.43 \\
+512 & \MO & \TO & \textbf{22.28} & \TO \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{finding}
+\textbf{RQ1.} The commander encoding is the most robust overall. Fewer clauses do \emph{not} mean faster solving: sequential counter is very compact but among the slowest, while pairwise fails because of memory ($\Theta(N^3)$ clauses).
+\end{finding}
+
+\subsection{RQ2 -- Comparing SAT solvers}
+Table~\ref{tab:solvers} compares eight solvers on the two most robust encodings for large $N$ (commander and product). A ``--'' means the solver had already timed out at a smaller $N$ and was not run again.
+\begin{itemize}
+  \item \textbf{Commander:} Glucose4 is the only solver that solves $N=1024$ (29.5~s). MiniSat~2.2 is the fastest at $N=256$ and $N=512$ (1.08~s and 6.71~s). Lingeling, both CaDiCaL versions and Kissat solve $N=512$ in 9--15~s.
+  \item \textbf{Product:} MiniSat is the only solver that solves $N=1024$ (29.9~s); Lingeling (3.5~s) and MiniSat (4.0~s) are the fastest at $N=512$.
+  \item CryptoMiniSat is clearly slower (7.2~s vs.\ 1.1~s for MiniSat at $N=256$, commander) and times out from $N=512$.
+  \item MapleChrono, which is tuned for hard (often UNSAT) instances, already times out at $N=128$.
+\end{itemize}
+
+\begin{table}[pos=htbp]
+\caption{Total time (s) per SAT solver and encoding. ``--'': not run because the solver already timed out at a smaller $N$.}\label{tab:solvers}
+\centering
+\begin{tabular}{lrrrrrrrr}
+\toprule
+ & \multicolumn{4}{c}{Commander} & \multicolumn{4}{c}{Product} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}
+Solver & 128 & 256 & 512 & 1024 & 128 & 256 & 512 & 1024 \\
+\midrule
+CaDiCaL 1.5.3   & 1.16 & 1.61 & 10.98 & \TO & 1.48 & 2.79 & 22.50 & \TO \\
+CaDiCaL 1.9.5   & 0.37 & 1.91 & 12.58 & \TO & 2.12 & 3.66 & \TO & -- \\
+Glucose 4       & 0.39 & 1.57 & 10.39 & \textbf{29.52} & \TO & -- & -- & -- \\
+MiniSat 2.2     & 0.29 & \textbf{1.08} & \textbf{6.71} & \TO & \textbf{0.20} & \textbf{0.73} & 3.96 & \textbf{29.93} \\
+MapleChrono     & \TO & -- & -- & -- & \TO & -- & -- & -- \\
+Lingeling       & 0.59 & 2.40 & 9.45 & \TO & 0.61 & 0.93 & \textbf{3.52} & \TO \\
+Kissat 4.0.4    & 0.44 & 2.42 & 14.82 & \TO & 1.58 & 3.07 & 5.42 & \TO \\
+CryptoMiniSat 5 & \textbf{0.26} & 7.22 & \TO & -- & 0.45 & 17.97 & \TO & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{finding}
+\textbf{RQ2.} Simple, lightly tuned solvers (MiniSat, Glucose) perform best on this easy, highly symmetric satisfiable problem. This ranking is specific to N-Queens and should not be read as a general solver ranking.
+\end{finding}
+
+\subsection{RQ3 -- SAT vs.\ CP vs.\ ILP}
+Table~\ref{tab:cmp} and Fig.~\ref{fig:cmp} compare the best SAT configuration (commander + MiniSat) with the CP and ILP solvers. Model-building time is included.
+
+\begin{table}[pos=htbp]
+\caption{Total time (s) of SAT, CP and ILP solvers (30~s limit, one thread). Best per row in bold. $^*$CPLEX MIP at $N\ge1000$ ran out of time while still building the $N^2$-variable model.}\label{tab:cmp}
+\centering
+\begin{tabular}{rrrrrrr}
+\toprule
+ & SAT & \multicolumn{3}{c}{CP} & \multicolumn{2}{c}{ILP} \\
+\cmidrule(lr){2-2}\cmidrule(lr){3-5}\cmidrule(lr){6-7}
+$N$ & commander+MiniSat & CP-SAT (int) & CP-SAT (bool) & CPLEX CP & Gurobi & CPLEX MIP \\
+\midrule
+8    & 0.03 & 0.18 & \textbf{0.01} & 1.31 & 0.33 & 0.43 \\
+16   & 0.02 & 0.02 & 0.01 & 0.01 & \textbf{$<$0.01} & 0.01 \\
+24   & 0.03 & 0.03 & 0.03 & \textbf{0.01} & 0.04 & \textbf{0.01} \\
+31   & 0.06 & 0.06 & 0.05 & \textbf{0.01} & \textbf{0.01} & \textbf{0.01} \\
+32   & 0.04 & 0.06 & 0.05 & \textbf{0.01} & 0.02 & \NA \\
+44   & 0.05 & 0.12 & 0.10 & 0.02 & \textbf{0.01} & \NA \\
+64   & 0.10 & 0.30 & 0.28 & \textbf{0.01} & \NA & \NA \\
+100  & 0.18 & 1.03 & 0.81 & \textbf{0.01} & \NA & \NA \\
+128  & 0.31 & 1.97 & 1.78 & \textbf{0.02} & \NA & \NA \\
+200  & \textbf{0.72} & 16.11 & 2.47 & \NA & \NA & \NA \\
+256  & \textbf{1.10} & \TO & 3.54 & \NA & \NA & \NA \\
+512  & \textbf{6.60} & \TO & \TO & \NA & \NA & \NA \\
+1000 & \textbf{27.69} & \TO & \TO & \NA & \NA & \TO$^*$ \\
+2000 & \MO & \TO & \MO & \NA & \NA & \TO$^*$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[pos=htbp]
+\centering
+\includegraphics[width=0.62\linewidth]{figures/time_paradigms.pdf}
+\caption{Total time vs.\ $N$ for SAT, CP and ILP (successful runs only; ``$<$0.01'' plotted as 0.005).}\label{fig:cmp}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{CPLEX CP is the fastest where it can run.} For $16\le N\le128$ it needs only 0.01--0.02~s, about 10--20 times faster than SAT (e.g.\ 0.02~s vs.\ 0.31~s at $N=128$). The \texttt{AllDifferent} propagator prunes far more per node than unit propagation on a flat CNF. (At $N=8$ its 1.31~s is most likely dominated by start-up overhead.)
+  \item \textbf{Gurobi and CPLEX MIP} are also fast (mostly 0.01--0.04~s) up to their licence limits ($N=44$ and $N=31$). We cannot draw conclusions beyond these limits.
+  \item \textbf{SAT scales further than CP-SAT.} CP-SAT (int) needs 16.1~s at $N=200$ and times out from $N=256$; CP-SAT (bool) reaches $N=256$ (3.5~s) but times out at $N=512$. SAT solves $N=512$ in 6.6~s and $N=1000$ in 27.7~s. Note that CP-SAT was run single-threaded; its default multi-threaded mode may behave very differently.
+  \item \textbf{No exact method solves $N=2000$} within the limits: SAT and CP-SAT (bool) run out of memory.
+\end{itemize}
+
+\begin{finding}
+\textbf{RQ3.} Within licence limits, CPLEX CP is the fastest exact method. Among methods that can run at every size, SAT (commander + MiniSat) scales furthest, reaching $N=1000$, about four times larger than single-threaded CP-SAT.
+\end{finding}
+
+%% =====================================================================
+\section{Discussion}\label{sec:discussion}
+%% =====================================================================
+
+\paragraph{Why clause count is not enough.}
+Sequential counter and product produce the smallest CNFs, yet sequential is much slower than commander, and product is unstable across $N$. CDCL performance depends on how well unit propagation and clause learning work on the encoding's structure, not only on its size. Commander keeps clauses short and adds relatively few auxiliary variables, which seems to suit CDCL solvers well on this problem.
+
+\paragraph{Why CP is fast.}
+CP keeps the problem as three \texttt{AllDifferent} constraints over only $N$ integer variables, while SAT and ILP need $N^2$ variables. The global propagator reasons about a whole line at once, so much less search is needed.
+
+\paragraph{Threats to validity.}
+\begin{itemize}
+  \item \emph{Licences:} the SAT vs.\ Gurobi/CPLEX comparison is only valid for $N\le44$ and $N\le31$. With full licences these solvers may scale very differently.
+  \item \emph{Single run, single core:} CDCL search has high variance between configurations, so small time differences are not statistically meaningful.
+  \item \emph{Single thread:} CP-SAT and the commercial solvers are designed to use several threads; our setting is fair but not their best case.
+  \item \emph{Scope:} we did not use symmetry-breaking clauses or more advanced cardinality encoders (e.g.\ PBLib).
+\end{itemize}
+
+%% =====================================================================
+\section{Conclusion}\label{sec:conclusion}
+%% =====================================================================
+We solved N-Queens with SAT using five hand-written and four PySAT AMO encodings on eight CDCL solvers, and compared SAT with CP-SAT, CPLEX CP, Gurobi and CPLEX MIP. All encodings were verified by exhaustive solution counting. Our main conclusions are:
+\begin{enumerate}
+  \item \textbf{Encoding (RQ1):} commander is the most robust AMO encoding; small CNF size does not guarantee fast solving.
+  \item \textbf{Solvers (RQ2):} MiniSat and Glucose are the most robust solvers on this problem; they are the only ones to reach $N=1024$.
+  \item \textbf{Paradigms (RQ3):} CPLEX CP is the fastest exact method within its licence ($N\le128$); SAT scales further than single-threaded CP-SAT and reaches $N=1000$.
+\end{enumerate}
+\textbf{Future work:} full commercial licences to extend the CP/ILP comparison to large $N$; symmetry-breaking SAT encodings and PBLib encoders; multi-threaded solvers; and repeated runs with several random seeds to measure variance.
+
+\section*{Data Availability}
+Source code and experimental results are available at: \url{https://github.com/<your-username>/nqueens-solvers}.
+
+%% =====================================================================
+\begin{thebibliography}{99}
+
+\bibitem{audemard2009} G. Audemard, L. Simon, Predicting learnt clauses quality in modern SAT solvers, in: Proc. IJCAI 2009, pp. 399--404.
+
+\bibitem{bell2009} J. Bell, B. Stevens, A survey of known results and research areas for n-queens, Discrete Mathematics 309 (1) (2009) 1--31.
+
+\bibitem{biere2020} A. Biere, K. Fazekas, M. Fleury, M. Heisinger, CaDiCaL, Kissat, Paracooba, Plingeling and Treengeling entering the SAT Competition 2020, in: Proc. SAT Competition 2020: Solver and Benchmark Descriptions, pp. 51--53.
+
+\bibitem{handbook2009} A. Biere, M. Heule, H. van Maaren, T. Walsh (Eds.), Handbook of Satisfiability, IOS Press, 2009.
+
+\bibitem{chen2010} J. Chen, A new SAT encoding of the at-most-one constraint, in: Proc. 9th Int. Workshop on Constraint Modelling and Reformulation (ModRef), 2010.
+
+\bibitem{een2003} N. E\'en, N. S\"orensson, An extensible SAT-solver, in: SAT 2003, LNCS 2919, pp. 502--518.
+
+\bibitem{frisch2010} A. M. Frisch, P. A. Giannaros, SAT encodings of the at-most-k constraint: some old, some new, some fast, some slow, in: Proc. 9th Int. Workshop on Constraint Modelling and Reformulation (ModRef), 2010.
+
+\bibitem{ignatiev2018} A. Ignatiev, A. Morgado, J. Marques-Silva, PySAT: a Python toolkit for prototyping with SAT oracles, in: SAT 2018, LNCS 10929, pp. 428--437.
+
+\bibitem{klieber2007} W. Klieber, G. Kwon, Efficient CNF encoding for selecting 1 from N objects, in: Workshop on Constraints in Formal Verification, 2007.
+
+\bibitem{letavec2002} C. Letavec, J. Ruggiero, The n-queens problem, INFORMS Transactions on Education 2 (3) (2002) 101--103.
+
+\bibitem{marques2009} J. P. Marques-Silva, I. Lynce, S. Malik, Conflict-driven clause learning SAT solvers, in: Handbook of Satisfiability, IOS Press, 2009.
+
+\bibitem{moskewicz2001} M. W. Moskewicz, C. F. Madigan, Y. Zhao, L. Zhang, S. Malik, Chaff: engineering an efficient SAT solver, in: Proc. DAC 2001, pp. 530--535.
+
+\bibitem{regin1994} J.-C. R\'egin, A filtering algorithm for constraints of difference in CSPs, in: Proc. AAAI 1994, pp. 362--367.
+
+\bibitem{gent2004} I. P. Gent, P. Nightingale, A new encoding of AllDifferent into SAT, in: Proc. 3rd Int. Workshop on Constraint Modelling and Reformulation (ModRef), 2004.
+
+\bibitem{hall1935} P. Hall, On representatives of subsets, J. London Math. Soc. 1 (1) (1935) 26--30.
+
+\bibitem{laborie2018} P. Laborie, J. Rogerie, P. Shaw, P. Vil\'im, IBM ILOG CP Optimizer for scheduling, Constraints 23 (2) (2018) 210--250.
+
+\bibitem{liang2016} J. H. Liang, V. Ganesh, P. Poupart, K. Czarnecki, Learning rate based branching heuristic for SAT solvers, in: Proc. SAT 2016, LNCS 9710, pp. 123--140.
+
+\bibitem{nadel2018} A. Nadel, V. Ryvchin, Chronological backtracking in SAT, in: Proc. SAT 2018, LNCS 10929, pp. 111--121.
+
+\bibitem{ohrimenko2009} O. Ohrimenko, P. J. Stuckey, M. Codish, Propagation via lazy clause generation, Constraints 14 (3) (2009) 357--391.
+
+\bibitem{perron2024} L. Perron, V. Furnon, OR-Tools, v9.15, Google, 2024.
+
+\bibitem{sinz2005} C. Sinz, Towards an optimal CNF encoding of Boolean cardinality constraints, in: CP 2005, LNCS 3709, pp. 827--831.
+
+\bibitem{soos2009} M. Soos, K. Nohl, C. Castelluccia, Extending SAT solvers to cryptographic problems, in: SAT 2009, LNCS 5584, pp. 244--257.
+
+\bibitem{wolsey1998} L. A. Wolsey, Integer Programming, John Wiley \& Sons, 1998.
+
+\end{thebibliography}
+
+\end{document}
