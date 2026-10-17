@@ -80,7 +80,7 @@ def cmd_verify_formulas(args):
         print(f"N={n:2d}: Pairwise clauses formula = {pw_c:,}")
         print(f"N={n:2d}: Sequential total clauses formula = {sq_c:,} | total vars formula = {sq_v:,}")
 
-    print("\nMeasuring CNF sizes across encodings (Table 3 in report):")
+    print("\nMeasuring CNF sizes across encodings (Table 8 in report):")
     tbl = verify_table_3_counts()
     print(f"{'Encoding':<12} | {'N=64 vars':>9} {'clauses':>10} | {'N=256 vars':>10} {'clauses':>12} | {'N=1024 vars':>11} {'clauses':>14}")
     print("-" * 80)

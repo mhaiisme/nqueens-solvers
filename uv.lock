@@ -1255,6 +1255,8 @@ dependencies = [
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "ortools" },
+    { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "pytest", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "python-sat" },
 ]
 
@@ -1270,6 +1272,7 @@ requires-dist = [
     { name = "gurobipy", specifier = ">=11.0.0" },
     { name = "matplotlib", specifier = ">=3.8.0" },
     { name = "ortools", specifier = ">=9.10.0" },
+    { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.0" },
     { name = "python-sat", specifier = ">=1.9.dev15" },
 ]

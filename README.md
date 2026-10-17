@@ -1,5 +1,9 @@
 # Solving the N-Queens Problem: SAT, CP, and ILP
 
+**Author:** Doãn Minh Hải (`Doan Minh Hai`) — **Student ID (MSV):** `24021454`  
+**Affiliation:** Faculty of Information Technology, VNU University of Engineering and Technology (VNU-UET)  
+**Paper PDF:** [`paper/main.pdf`](paper/main.pdf)
+
 A comparative framework for solving the N-Queens problem across three exact combinatorial paradigms:
 1. **Propositional Satisfiability (SAT)**: CDCL solvers with 5 hand-crafted At-Most-One (AMO) encodings and 4 PySAT built-in cardinality encodings.
 2. **Constraint Programming (CP)**: Google OR-Tools CP-SAT (Integer and Boolean models) and IBM CPLEX CP Optimizer (`AllDifferent`).
@@ -16,6 +20,11 @@ nqueens-solvers/
 ├── requirements.txt               # Direct pip requirements
 ├── cli.py                         # Unified Command-Line Interface (CLI)
 ├── run_experiments.py             # Script to reproduce the paper's benchmark tables
+├── paper/
+│   ├── main.pdf                   # Compiled 16-page scientific report (Elsevier cas-sc)
+│   ├── main.tex                   # Main LaTeX source
+│   ├── parts/background_method.tex# Background & Methodology sections
+│   └── figures/                   # Vector PDF illustrations and plots
 ├── nqueens/
 │   ├── board.py                   # N-Queens geometry, lines generator, cell/var mapping
 │   ├── validator.py               # Independent solution validator (no-attack checker)
@@ -86,13 +95,13 @@ Solve with Gurobi MIP:
 python cli.py solve -n 8 --solver gurobi --print-board
 ```
 
-### 2. Verify Encodings Against OEIS A000170
+### 2. Verify Encodings Against OEIS A000170 (Table 7)
 Exhaustively count all solutions for $N=2..9$ and verify against OEIS:
 ```bash
 python cli.py verify-oeis
 ```
 
-### 3. Verify Closed-Form CNF Formulas (Table 3)
+### 3. Verify Closed-Form CNF Formulas (Table 8)
 Check theoretical formulas against actual measured sizes on $N=64, 256, 1024$:
 ```bash
 python cli.py verify-formulas
@@ -108,21 +117,28 @@ python cli.py benchmark --solvers sat cp_sat_int gurobi --sizes 8 16 24 32 44
 
 ## 📊 Reproducing the Paper Tables
 
-To reproduce the exact benchmark tables from the research report, run:
+To reproduce the exact benchmark tables from the research report (`paper/main.pdf`), run:
 
 ```bash
-# Table 2: Exhaustive solution counting for N=2..9 across all 9 encodings
-python run_experiments.py --table 2
-
-# Table 3: CNF size (vars and clauses) across encodings for N=64, 256, 1024
-python run_experiments.py --table 3
-
-# Table 4: Solving time across AMO encodings on CaDiCaL 1.5.3
-python run_experiments.py --table 4
-
-# Table 7: Comparative benchmark across SAT, CP, and ILP paradigms
+# Table 7 (tab:count): Exhaustive solution counting for N=2..9 across all 9 encodings
 python run_experiments.py --table 7
+
+# Table 8 (tab:size): CNF size (vars and clauses) across encodings for N=64, 256, 1024
+python run_experiments.py --table 8
+
+# Table 9 (tab:enc): Solving time across AMO encodings on CaDiCaL 1.5.3
+python run_experiments.py --table 9
+
+# Table 10 (tab:pysat): Solving time for PySAT's built-in AMO encodings
+python run_experiments.py --table 10
+
+# Table 11 (tab:solvers): Solving time across CDCL solvers on Commander & Product
+python run_experiments.py --table 11
+
+# Table 12 (tab:cmp): Comparative benchmark across SAT, CP, and ILP paradigms
+python run_experiments.py --table 12
 ```
+*(Legacy aliases `--table 2`, `--table 3`, `--table 4` and named aliases `counting`, `size`, `encodings`, `pysat`, `solvers`, `paradigms` are also supported).*
 
 ---
 
